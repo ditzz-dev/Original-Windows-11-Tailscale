@@ -1,0 +1,49 @@
+name: Windows 11
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp-session:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Windows 11
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          $runnerAdminPass = "WindowsRDP#2025"
+          net user "runneradmin" $runnerAdminPass
+          echo "RDP_USER=runneradmin" >> $env:GITHUB_ENV
+          echo "RDP_PASS=$runnerAdminPass" >> $env:GITHUB_ENV
+          
+      - name: Install and Connect Tailscale
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
+          Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/S" -Wait
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-runner-$env:GITHUB_RUN_ID
+          $tsIP = $null
+          for ($i=1; $i -le 15; $i++){ 
+            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+            if($tsIP){break}
+            Start-Sleep 4 
+          }
+          if (-not $tsIP) { 
+            exit 1 
+          }
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+      - name: Display Connection Details and Keep Alive
+        shell: powershell
+        run: |
+          Write-Host "================ RDP IS READY ================"
+          Write-Host "IP Address: ${{ env.TAILSCALE_IP }}"
+          Write-Host "Username  : ${{ env.RDP_USER }}"
+          Write-Host "Password  : ${{ env.RDP_PASS }}"
+          Write-Host "=============================================="
+          while ($true) {
+            Start-Sleep 300
+          }
